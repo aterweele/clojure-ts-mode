@@ -1038,6 +1038,39 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
   (let ((nodes (treesit-query-capture 'clojure clojure-ts--find-ns-query)))
     (treesit-node-text (cdr (assoc 'ns-name nodes)) t)))
 
+(defun clojure-ts--bindings-vector-for-form (node)
+  )
+
+(defun clojure-ts-bindings-above-point ()
+  (let ((bindings nil)
+        (current-node (treesit-node-at (point))))
+    (while (not (equal current-node (treesit-buffer-root-node)))
+      (when (and (clojure-ts--list-node-p current-node)
+                 (clojure-ts--symbol-matches-p
+                  "let" (treesit-node-child current-node 1)))
+        ;; find the second child, which should be the bindings vector. Drop the
+        ;; leading "[" and the trailing "]".
+        (let ((bindings-vector (cdr (butlast
+                                     (treesit-node-children
+                                      (treesit-node-child current-node 2))))))
+          (seq-do (pcase-lambda (`(,binding))
+                    (push (clojure-ts--named-node-text binding) bindings))
+                  (seq-partition
+                   (->> bindings-vector
+                        (seq-remove (lambda (node)
+                                      (string= (treesit-node-type node)
+                                               "comment")))
+                        (seq-filter (lambda (node)
+                                      (< (treesit-node-end node) (point))))
+                        (seq-reverse))
+                   2))))
+      (setq current-node (treesit-node-parent current-node)))
+    bindings))
+
+(defun clojure-ts-completion-at-point ()
+  (pcase-let ((`(,start . ,end) (bounds-of-thing-at-point 'symbol)))
+    (list start end (clojure-ts-bindings-above-point) nil)))
+
 (provide 'clojure-ts-mode)
 
 ;;; clojure-ts-mode.el ends here
