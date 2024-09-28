@@ -1098,22 +1098,9 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
   (let ((binding-form-nodes nil)
         (current-node (treesit-node-at (point))))
     (while (not (equal current-node (treesit-buffer-root-node)))
-      (let ((pruned-tree (treesit-induce-sparse-tree
-                          current-node
-                          #'always
-                          (lambda (node)
-                            (let ((type (treesit-node-type node)))
-                              (if (or (string= "comment" type)
-                                      (string= "dis_expr" type))
-                                  nil
-                                node))))))
-        ;; XXX broken. This is interesting but I don't think I can use it to
-        ;; make "`current-node' but without comments". Because, IIUC,
-        ;; `treesit-induce-sparse-tree' doesn't return a single tree 🤷
-        ;; (message "pruned tree: %S" pruned-tree)
-        )
       (seq-do (pcase-lambda (`(,k . ,v))
-                (when (eq k 'lhs)
+                (when (and (eq k 'lhs)
+                           (< (treesit-node-end v) (point)))
                   (push v binding-form-nodes)))
               (treesit-query-capture current-node
                                      clojure-ts--bindings-query
