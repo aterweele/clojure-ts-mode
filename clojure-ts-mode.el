@@ -1039,33 +1039,68 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
     (treesit-node-text (cdr (assoc 'ns-name nodes)) t)))
 
 (defun clojure-ts--bindings-vector-for-form (node)
+  ;; TODO
   )
 
+(defun clojure-ts--bindings-for-destructing-form-node (node)
+  (pcase (treesit-node-type node)
+    ("sym_lit" (list (treesit-node-text node t)))
+    ;; ("map_lit"
+    ;;  (let* ((skip '[(comment) (dis_expr)])
+    ;;         (lhs '[(sym_lit) (vec_lit) (map_lit) (kwd_lit)])
+    ;;         (rhs '[(kwd_lit) (str_lit) (num_lit) (sym_lit) (vec_lit)
+    ;;                ;; TODO the RHS is anything that could be a map key
+    ;;                ])
+    ;;         ;; TODO: this may be a stupid thing to do with a query.
+    ;;         (query `((map_lit
+    ;;                   :anchor ,skip :*
+    ;;                   :anchor (,lhs :anchor ,skip :* :anchor ,rhs) :*
+    ;;                   :anchor ,skip :*
+    ;;                   :anchor ,lhs @lhs
+    ;;                   :anchor ,skip :*
+    ;;                   :anchor ,rhs @rhs)))
+    ;;         (capture (treesit-query-capture node query)))
+    ;;    (message "capture: %S" capture)
+    ;;    (seq-mapcat (pcase-lambda (`((_ . ,lhs) (_ . ,rhs)))
+    ;;                  (pcase (list (treesit-node-type lhs)
+    ;;                               (treesit-node-text lhs))
+    ;;                    ("kwd_lit" ":keys")
+    ;;                    (seq-map (lambda (child) (treesit-node-text child))
+    ;;                             (treesit-node-children rhs))))
+    ;;                (seq-partition capture 2))))
+    ))
+
+(defvar clojure-ts--bindings-query
+  (let ((skip '[(comment) (dis_expr)])
+        (lhs '[(sym_lit) (vec_lit) (map_lit)])
+        (rhs '[(sym_lit) (vec_lit) (map_lit) (num_lit) (kwd_lit) (str_lit)
+               ;; TODO enumerate all possible RHSs. Is a better way possible?
+               ]))
+    `((list_lit
+       :anchor ,skip :*
+       :anchor ((sym_lit name: (sym_name) @let)
+                (:equal @let "let"))
+       :anchor ,skip :*
+       :anchor (vec_lit
+                :anchor ,skip :*
+                ;; A valid LHS is preceded by zero or more LHS-RHS pairs.
+                :anchor (,lhs :anchor ,skip :* :anchor ,rhs) :*
+                :anchor ,skip :*
+                :anchor ,lhs @lhs)))))
+
 (defun clojure-ts-bindings-above-point ()
-  (let ((bindings nil)
+  (let ((binding-form-nodes nil)
         (current-node (treesit-node-at (point))))
     (while (not (equal current-node (treesit-buffer-root-node)))
-      (when (and (clojure-ts--list-node-p current-node)
-                 (clojure-ts--symbol-matches-p
-                  "let" (treesit-node-child current-node 1)))
-        ;; find the second child, which should be the bindings vector. Drop the
-        ;; leading "[" and the trailing "]".
-        (let ((bindings-vector (cdr (butlast
-                                     (treesit-node-children
-                                      (treesit-node-child current-node 2))))))
-          (seq-do (pcase-lambda (`(,binding))
-                    (push (clojure-ts--named-node-text binding) bindings))
-                  (seq-partition
-                   (->> bindings-vector
-                        (seq-remove (lambda (node)
-                                      (string= (treesit-node-type node)
-                                               "comment")))
-                        (seq-filter (lambda (node)
-                                      (< (treesit-node-end node) (point))))
-                        (seq-reverse))
-                   2))))
+      (seq-do (pcase-lambda (`(,k . ,v))
+                (when (eq k 'lhs)
+                  (push v binding-form-nodes)))
+              (treesit-query-capture current-node
+                                     clojure-ts--bindings-query
+                                     (treesit-node-start current-node) (point)))
       (setq current-node (treesit-node-parent current-node)))
-    bindings))
+    (seq-mapcat #'clojure-ts--bindings-for-destructing-form-node
+                binding-form-nodes)))
 
 (defun clojure-ts-completion-at-point ()
   (pcase-let ((`(,start . ,end) (bounds-of-thing-at-point 'symbol)))
