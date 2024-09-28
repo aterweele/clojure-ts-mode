@@ -1045,29 +1045,35 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
 (defun clojure-ts--bindings-for-destructing-form-node (node)
   (pcase (treesit-node-type node)
     ("sym_lit" (list (treesit-node-text node t)))
-    ;; ("map_lit"
-    ;;  (let* ((skip '[(comment) (dis_expr)])
-    ;;         (lhs '[(sym_lit) (vec_lit) (map_lit) (kwd_lit)])
-    ;;         (rhs '[(kwd_lit) (str_lit) (num_lit) (sym_lit) (vec_lit)
-    ;;                ;; TODO the RHS is anything that could be a map key
-    ;;                ])
-    ;;         ;; TODO: this may be a stupid thing to do with a query.
-    ;;         (query `((map_lit
-    ;;                   :anchor ,skip :*
-    ;;                   :anchor (,lhs :anchor ,skip :* :anchor ,rhs) :*
-    ;;                   :anchor ,skip :*
-    ;;                   :anchor ,lhs @lhs
-    ;;                   :anchor ,skip :*
-    ;;                   :anchor ,rhs @rhs)))
-    ;;         (capture (treesit-query-capture node query)))
-    ;;    (message "capture: %S" capture)
-    ;;    (seq-mapcat (pcase-lambda (`((_ . ,lhs) (_ . ,rhs)))
-    ;;                  (pcase (list (treesit-node-type lhs)
-    ;;                               (treesit-node-text lhs))
-    ;;                    ("kwd_lit" ":keys")
-    ;;                    (seq-map (lambda (child) (treesit-node-text child))
-    ;;                             (treesit-node-children rhs))))
-    ;;                (seq-partition capture 2))))
+    ("map_lit"
+     (let* ((skip '[(comment) (dis_expr)])
+            (lhs '[(sym_lit) (vec_lit) (map_lit) (kwd_lit)])
+            (rhs '[(kwd_lit) (str_lit) (num_lit) (sym_lit) (vec_lit)
+                   ;; TODO the RHS is anything that could be a map key
+                   ])
+            ;; TODO: this may be a stupid thing to do with a query.
+            (query `((map_lit
+                      :anchor ,skip :*
+                      :anchor (,lhs :anchor ,skip :* :anchor ,rhs) :*
+                      :anchor ,skip :*
+                      :anchor ,lhs @lhs
+                      :anchor ,skip :*
+                      :anchor ,rhs @rhs)))
+            (capture (treesit-query-capture node query)))
+       (seq-mapcat (pcase-lambda (`((_ . ,lhs) (_ . ,rhs)))
+                     (pcase (list (treesit-node-type lhs)
+                                  (treesit-node-text lhs))
+                       ;; TODO handle namespaced destructuring like ":foo/keys".
+                       (`("kwd_lit" ,(or ":keys" ":strs" ":syms"))
+                        (seq-map (pcase-lambda (`(_ . ,binding))
+                                   (treesit-node-text binding t))
+                                 (treesit-query-capture
+                                  rhs
+                                  '((vec_lit (sym_lit) @binding)))))
+                       (`(,(or "sym_lit" "vec_lit" "map_lit") _)
+                        (clojure-ts--bindings-for-destructing-form-node rhs))))
+                   (seq-partition capture 2))))
+    ;; TODO handle "vec_lit"
     ))
 
 (defvar clojure-ts--bindings-query
@@ -1092,12 +1098,27 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
   (let ((binding-form-nodes nil)
         (current-node (treesit-node-at (point))))
     (while (not (equal current-node (treesit-buffer-root-node)))
+      (let ((pruned-tree (treesit-induce-sparse-tree
+                          current-node
+                          #'always
+                          (lambda (node)
+                            (let ((type (treesit-node-type node)))
+                              (if (or (string= "comment" type)
+                                      (string= "dis_expr" type))
+                                  nil
+                                node))))))
+        ;; XXX broken. This is interesting but I don't think I can use it to
+        ;; make "`current-node' but without comments". Because, IIUC,
+        ;; `treesit-induce-sparse-tree' doesn't return a single tree 🤷
+        ;; (message "pruned tree: %S" pruned-tree)
+        )
       (seq-do (pcase-lambda (`(,k . ,v))
                 (when (eq k 'lhs)
                   (push v binding-form-nodes)))
               (treesit-query-capture current-node
                                      clojure-ts--bindings-query
-                                     (treesit-node-start current-node) (point)))
+                                     (treesit-node-start current-node)
+                                     (point)))
       (setq current-node (treesit-node-parent current-node)))
     (seq-mapcat #'clojure-ts--bindings-for-destructing-form-node
                 binding-form-nodes)))
