@@ -1080,6 +1080,7 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
   (let ((skip '[(comment) (dis_expr)])
         (lhs '[(sym_lit) (vec_lit) (map_lit)])
         (rhs '[(sym_lit) (vec_lit) (map_lit) (num_lit) (kwd_lit) (str_lit)
+               (list_lit)
                ;; TODO enumerate all possible RHSs. Is a better way possible?
                ]))
     `((list_lit
@@ -1090,22 +1091,32 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
        :anchor (vec_lit
                 :anchor ,skip :*
                 ;; A valid LHS is preceded by zero or more LHS-RHS pairs.
-                :anchor (,lhs :anchor ,skip :* :anchor ,rhs) :*
+                :anchor ((,lhs @prefix-lhs
+                                :anchor ,skip :*
+                               :anchor ,rhs @prefix-rhs) :*)
                 :anchor ,skip :*
+                ;; FIXME there's a bug somewhere. Sometimes, this can match an
+                ;; RHS, but I'm not sure why.
                 :anchor ,lhs @lhs)))))
 
 (defun clojure-ts-bindings-above-point ()
   (let ((binding-form-nodes nil)
         (current-node (treesit-node-at (point))))
     (while (not (equal current-node (treesit-buffer-root-node)))
-      (seq-do (pcase-lambda (`(,k . ,v))
-                (when (and (eq k 'lhs)
-                           (< (treesit-node-end v) (point)))
-                  (push v binding-form-nodes)))
-              (treesit-query-capture current-node
-                                     clojure-ts--bindings-query
-                                     (treesit-node-start current-node)
-                                     (point)))
+      (let ((capture (treesit-query-capture current-node
+                                            clojure-ts--bindings-query
+                                            (treesit-node-start current-node)
+                                            (point))))
+        ;; XXX debugging
+        ;; (message "capture: %S"
+        ;;          (seq-map (pcase-lambda (`(,k . ,v))
+        ;;                     `(,k . ,(treesit-node-text v t)))
+        ;;                   capture))
+        (seq-do (pcase-lambda (`(,k . ,v))
+                  (when (and (eq k 'lhs)
+                             (< (treesit-node-end v) (point)))
+                    (push v binding-form-nodes)))
+                capture))
       (setq current-node (treesit-node-parent current-node)))
     (seq-mapcat #'clojure-ts--bindings-for-destructing-form-node
                 binding-form-nodes)))
