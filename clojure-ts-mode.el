@@ -1073,8 +1073,15 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                        (`(,(or "sym_lit" "vec_lit" "map_lit") _)
                         (clojure-ts--bindings-for-destructing-form-node rhs))))
                    (seq-partition capture 2))))
-    ;; TODO handle "vec_lit"
-    ))
+    ("vec_lit"
+     (seq-mapcat
+      (lambda (child)
+        (pcase (treesit-node-type child)
+          ("sym_lit" (let ((text (treesit-node-text child t)))
+                       (unless (string= text "&")
+                         (list text))))
+          ((or "map_lit" "vec_lit") (clojure-ts--bindings-for-destructing-form-node child))))
+      (treesit-node-children node)))))
 
 (defvar clojure-ts--bindings-query
   (let ((skip '[(comment) (dis_expr)])
