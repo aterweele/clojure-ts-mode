@@ -1038,10 +1038,6 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
   (let ((nodes (treesit-query-capture 'clojure clojure-ts--find-ns-query)))
     (treesit-node-text (cdr (assoc 'ns-name nodes)) t)))
 
-(defun clojure-ts--bindings-vector-for-form (node)
-  ;; TODO
-  )
-
 (defun clojure-ts--bindings-for-destructing-form-node (node)
   (pcase (treesit-node-type node)
     ("sym_lit" (list node))
@@ -1085,8 +1081,8 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
       (treesit-node-children node)))))
 
 (defun clojure-ts--binding-lhss-for-node (node)
-  ;; TODO: if `node' is like (for ...), (doseq ...), (defn ...), etc, return
-  ;; every node which represents a binding LHS.
+  ;; if `node' is like (for ...), (doseq ...), (defn ...), etc, return every
+  ;; node which represents a binding LHS.
   (when (clojure-ts--list-node-p node)
     ;; TODO my usage of `clojure-ts--named-node-text' is pretty sloppy since it
     ;; doesn't account for stuff potentially being namespace-qualified.
