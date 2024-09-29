@@ -1087,12 +1087,14 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
   ;; TODO: if `node' is like (for ...), (doseq ...), (defn ...), etc, return
   ;; every node which represents a binding LHS.
   (when (clojure-ts--list-node-p node)
+    ;; TODO my usage of `clojure-ts--named-node-text' is pretty sloppy since it
+    ;; doesn't account for stuff potentially being namespace-qualified.
     (pcase (->> node
                 (treesit-node-children)
                 (seq-some (lambda (node)
                             (when (clojure-ts--symbol-node-p node)
                               (clojure-ts--named-node-text node)))))
-      ("let"
+      ((or "let" "if-let" "if-some" "when-let" "when-some" "loop")
        (-as-> node %
               (treesit-node-children %)
               (seq-some (lambda (node)
@@ -1106,7 +1108,69 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                                   (string= type "dis_expr"))))
                           %)
               (seq-partition % 2)
-              (seq-map #'car %))))))
+              (seq-map #'car %)))
+      ((or "for" "doseq")
+       (-as-> node %
+              (treesit-node-children %)
+              (seq-some (lambda (node)
+                          (when (string-equal "vec_lit" (treesit-node-type node))
+                            node))
+                        %)
+              (treesit-node-children % t)
+              (seq-remove (lambda (node)
+                            (let ((type (treesit-node-type node)))
+                              (or (string= type "comment")
+                                  (string= type "dis_expr"))))
+                          %)
+              (seq-partition % 2)
+              (seq-mapcat (pcase-lambda (`(,node ,rhs))
+                            (pcase (clojure-ts--named-node-text node)
+                              ((or "while" "when") nil)
+                              ("let"
+                               (-as-> rhs %
+                                      (treesit-node-children % t)
+                                      (seq-remove (lambda (node)
+                                                    (let ((type (treesit-node-type node)))
+                                                      (or (string= type "comment")
+                                                          (string= type "dis_expr"))))
+                                                  %)
+                                      (seq-partition % 2)
+                                      (seq-map #'car %)))
+                              (_ (list node))))
+                          %)))
+      ((or "defn" "fn")
+       (let ((node (->> node
+                        (treesit-node-children)
+                        (seq-remove (lambda (node)
+                                      (let ((type (treesit-node-type node)))
+                                        (or (string= type "comment")
+                                            (string= type "dis_expr"))))))))
+         (pcase node
+           ;; FIXME: this isn't matching, and it doesn't handle multi-arity defn
+           ;; or the presence of a docstring.
+           ((and `(,defn ,name ,bindings . ,_)
+                 (guard (and (clojure-ts--symbol-node-p defn)
+                             ;; (string= (clojure-ts--named-node-text defn)-
+                             ;;          "defn")
+                             ;; (clojure-ts--symbol-node-p name)
+                             ;; (string= (treesit-node-type bindings)
+                             ;;          "vec_lit")
+                             )))
+            (message "matched!")
+            (-as-> bindings %
+                   (treesit-node-children % t)
+                   (seq-remove (lambda (node)
+                                 (let ((type (treesit-node-type node)))
+                                   (or (string= type "comment")
+                                       (string= type "dis_expr"))))
+                               %)
+                   ((lambda (x)
+                      (message "without comments: %S" x)
+                      x) %)
+                   (seq-remove (lambda (node)
+                                 (or (string= (treesit-node-text node) "&")
+                                     (string= (treesit-node-text node) ":as")))
+                               %)))))))))
 
 (defun clojure-ts-bindings-above-point ()
   (let ((binding-form-nodes nil)
