@@ -1083,50 +1083,43 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
           ((or "map_lit" "vec_lit") (clojure-ts--bindings-for-destructing-form-node child))))
       (treesit-node-children node)))))
 
-(defvar clojure-ts--bindings-query
-  (let ((skip '[(comment) (dis_expr)])
-        (lhs '[(sym_lit) (vec_lit) (map_lit)])
-        (rhs '[(sym_lit) (vec_lit) (map_lit) (num_lit) (kwd_lit) (str_lit)
-               (list_lit)
-               ;; TODO enumerate all possible RHSs. Is a better way possible?
-               ]))
-    `((list_lit
-       :anchor ,skip :*
-       :anchor ((sym_lit name: (sym_name) @let)
-                (:equal @let "let"))
-       :anchor ,skip :*
-       :anchor (vec_lit
-                :anchor ,skip :*
-                ;; A valid LHS is preceded by zero or more LHS-RHS pairs.
-                :anchor ((,lhs @prefix-lhs
-                                :anchor ,skip :*
-                               :anchor ,rhs @prefix-rhs) :*)
-                :anchor ,skip :*
-                ;; FIXME there's a bug somewhere. Sometimes, this can match an
-                ;; RHS, but I'm not sure why.
-                :anchor ,lhs @lhs)))))
+(defun clojure-ts--binding-lhss-for-node (node)
+  ;; TODO: if `node' is like (for ...), (doseq ...), (defn ...), etc, return
+  ;; every node which represents a binding LHS.
+  (when (clojure-ts--list-node-p node)
+    (pcase (->> node
+                (treesit-node-children)
+                (seq-some (lambda (node)
+                            (when (clojure-ts--symbol-node-p node)
+                              (clojure-ts--named-node-text node)))))
+      ("let"
+       (-as-> node %
+              (treesit-node-children %)
+              (seq-some (lambda (node)
+                          (when (string-equal "vec_lit" (treesit-node-type node))
+                            node))
+                        %)
+              (treesit-node-children % t)
+              (seq-remove (lambda (node)
+                            (let ((type (treesit-node-type node)))
+                              (or (string= type "comment")
+                                  (string= type "dis_expr"))))
+                          %)
+              (seq-partition % 2)
+              (seq-map #'car %))))))
 
 (defun clojure-ts-bindings-above-point ()
   (let ((binding-form-nodes nil)
         (current-node (treesit-node-at (point))))
     (while (not (equal current-node (treesit-buffer-root-node)))
-      (let ((capture (treesit-query-capture current-node
-                                            clojure-ts--bindings-query
-                                            (treesit-node-start current-node)
-                                            (point))))
-        ;; XXX debugging
-        ;; (message "capture: %S"
-        ;;          (seq-map (pcase-lambda (`(,k . ,v))
-        ;;                     `(,k . ,(treesit-node-text v t)))
-        ;;                   capture))
-        (seq-do (pcase-lambda (`(,k . ,v))
-                  (when (and (eq k 'lhs)
-                             (< (treesit-node-end v) (point)))
-                    (push v binding-form-nodes)))
-                capture))
+      (->> current-node
+           (clojure-ts--binding-lhss-for-node)
+           (seq-mapcat #'clojure-ts--bindings-for-destructing-form-node)
+           ;; TODO the above step should emit nodes, not strings. Then, filter
+           ;; to nodes that are before `(point)'.
+           (seq-do (lambda (binding) (push binding binding-form-nodes))))
       (setq current-node (treesit-node-parent current-node)))
-    (seq-mapcat #'clojure-ts--bindings-for-destructing-form-node
-                binding-form-nodes)))
+    binding-form-nodes))
 
 (defun clojure-ts-completion-at-point ()
   (pcase-let ((`(,start . ,end) (bounds-of-thing-at-point 'symbol)))
