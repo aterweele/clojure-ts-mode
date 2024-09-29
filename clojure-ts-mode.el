@@ -1091,7 +1091,7 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                 (seq-some (lambda (node)
                             (when (clojure-ts--symbol-node-p node)
                               (clojure-ts--named-node-text node)))))
-      ((or "let" "if-let" "if-some" "when-let" "when-some" "loop")
+      ((or "let" "if-let" "if-some" "when-let" "when-some" "loop" "with-open")
        (-as-> node %
               (treesit-node-children %)
               (seq-some (lambda (node)
@@ -1135,7 +1135,7 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                                       (seq-map #'car %)))
                               (_ (list node))))
                           %)))
-      ((or "defn" "fn")
+      ((or "defn" "defn-" "fn")
        ;; TODO: defn (and fn, optionally) also add the name of the current
        ;; function to scope.
        (if-let ((binding-vector
@@ -1176,7 +1176,10 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                                          (or (string= (treesit-node-type child) "comment")
                                              (string= (treesit-node-type child) "dis_expr")))
                                        %))))
-         (list binding))))))
+         (list binding)))
+      ;; TODO: defmacro, definline, defrecord, reify, proxy, extend-protocol,
+      ;; extend-type, letfn, deftype, catch
+      )))
 
 (defun clojure-ts-bindings-above-point ()
   (let ((binding-form-nodes nil)
