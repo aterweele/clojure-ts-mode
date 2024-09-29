@@ -1044,7 +1044,7 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
 
 (defun clojure-ts--bindings-for-destructing-form-node (node)
   (pcase (treesit-node-type node)
-    ("sym_lit" (list (treesit-node-text node t)))
+    ("sym_lit" (list node))
     ("map_lit"
      (let* ((skip '[(comment) (dis_expr)])
             (lhs '[(sym_lit) (vec_lit) (map_lit) (kwd_lit)])
@@ -1066,7 +1066,7 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                        ;; TODO handle namespaced destructuring like ":foo/keys".
                        (`("kwd_lit" ,(or ":keys" ":strs" ":syms"))
                         (seq-map (pcase-lambda (`(_ . ,binding))
-                                   (treesit-node-text binding t))
+                                   binding)
                                  (treesit-query-capture
                                   rhs
                                   '((vec_lit (sym_lit) @binding)))))
@@ -1078,8 +1078,9 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
       (lambda (child)
         (pcase (treesit-node-type child)
           ("sym_lit" (let ((text (treesit-node-text child t)))
-                       (unless (string= text "&")
-                         (list text))))
+                       (unless (or (string= text "&")
+                                   (string= text ":as"))
+                         (list child))))
           ((or "map_lit" "vec_lit") (clojure-ts--bindings-for-destructing-form-node child))))
       (treesit-node-children node)))))
 
@@ -1156,6 +1157,7 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                              (clojure-ts--symbol-node-p name)
                              (string= (treesit-node-type bindings)
                                       "vec_lit"))))
+            ;; FIXME shouldn't we just return `bindings' as it's an LHS?
             (-as-> bindings %
                    (treesit-node-children % t)
                    (seq-remove (lambda (node)
@@ -1175,9 +1177,9 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
       (->> current-node
            (clojure-ts--binding-lhss-for-node)
            (seq-mapcat #'clojure-ts--bindings-for-destructing-form-node)
-           ;; TODO the above step should emit nodes, not strings. Then, filter
-           ;; to nodes that are before `(point)'.
-           (seq-do (lambda (binding) (push binding binding-form-nodes))))
+           (seq-filter (lambda (node)
+                         (< (treesit-node-end node) (point))))
+           (seq-do (lambda (binding) (push (treesit-node-text binding) binding-form-nodes))))
       (setq current-node (treesit-node-parent current-node)))
     binding-form-nodes))
 
