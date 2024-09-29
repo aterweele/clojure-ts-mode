@@ -1140,32 +1140,40 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                               (_ (list node))))
                           %)))
       ((or "defn" "fn")
-       (let ((node (-as-> node %
+       ;; TODO: defn (and fn, optionally) also add the name of the current
+       ;; function to scope.
+       (if-let ((binding-vector
+                 (seq-some (lambda (child)
+                             (when (string= (treesit-node-type child) "vec_lit")
+                               child))
+                           (treesit-node-children node t))))
+           ;; single-arity case
+           (list binding-vector)
+         ;; multi-arity case: find the arity that contains `(point)', then get
+         ;; its binding vector.
+         (-as-> node %
+                (treesit-node-children % t)
+                (seq-filter #'clojure-ts--list-node-p %)
+                ;; XXX this is point-aware, unlike the rest of this function,
+                ;; which just returns candidates regardless of the location of
+                ;; `(point)'.
+                (seq-filter (lambda (arity-body)
+                              (< (treesit-node-start arity-body)
+                                 (point)
+                                 (treesit-node-end arity-body)))
+                            %)
+                (seq-map
+                 (lambda (arity-body)
+                   (-as-> arity-body %
                           (treesit-node-children % t)
-                          (seq-remove (lambda (node)
-                                        (let ((type (treesit-node-type node)))
-                                          (or (string= type "comment")
-                                              (string= type "dis_expr"))))
-                                      %))))
-         (pcase node
-           ;; FIXME: this doesn't handle multi-arity defn or the presence of a
-           ;; docstring.
-           ((or (and `(,defn ,name ,bindings . ,_)
-                     (guard (and (clojure-ts--symbol-node-p defn)
-                                 (string= (clojure-ts--named-node-text defn)
-                                          "defn")
-                                 (clojure-ts--symbol-node-p name)
-                                 (string= (treesit-node-type bindings)
-                                          "vec_lit"))))
-                (and `(,defn ,name ,doc-string ,bindings . ,_)
-                     (guard (and (clojure-ts--symbol-node-p defn)
-                                 (string= (clojure-ts--named-node-text defn)
-                                          "defn")
-                                 (clojure-ts--symbol-node-p name)
-                                 (clojure-ts--string-node-p doc-string)
-                                 (string= (treesit-node-type bindings)
-                                          "vec_lit")))))
-            (list bindings))))))))
+                          (seq-some (lambda (child)
+                                      (when (string= (treesit-node-type child)
+                                                     "vec_lit")
+                                        child))
+                                    %)))
+                 %))))
+      ;; TODO: defmethod
+      )))
 
 (defun clojure-ts-bindings-above-point ()
   (let ((binding-form-nodes nil)
