@@ -1139,24 +1139,23 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                               (_ (list node))))
                           %)))
       ((or "defn" "fn")
-       (let ((node (->> node
-                        (treesit-node-children)
-                        (seq-remove (lambda (node)
-                                      (let ((type (treesit-node-type node)))
-                                        (or (string= type "comment")
-                                            (string= type "dis_expr"))))))))
+       (let ((node (-as-> node %
+                          (treesit-node-children % t)
+                          (seq-remove (lambda (node)
+                                        (let ((type (treesit-node-type node)))
+                                          (or (string= type "comment")
+                                              (string= type "dis_expr"))))
+                                      %))))
          (pcase node
-           ;; FIXME: this isn't matching, and it doesn't handle multi-arity defn
-           ;; or the presence of a docstring.
+           ;; FIXME: this doesn't handle multi-arity defn or the presence of a
+           ;; docstring.
            ((and `(,defn ,name ,bindings . ,_)
                  (guard (and (clojure-ts--symbol-node-p defn)
-                             ;; (string= (clojure-ts--named-node-text defn)-
-                             ;;          "defn")
-                             ;; (clojure-ts--symbol-node-p name)
-                             ;; (string= (treesit-node-type bindings)
-                             ;;          "vec_lit")
-                             )))
-            (message "matched!")
+                             (string= (clojure-ts--named-node-text defn)
+                                      "defn")
+                             (clojure-ts--symbol-node-p name)
+                             (string= (treesit-node-type bindings)
+                                      "vec_lit"))))
             (-as-> bindings %
                    (treesit-node-children % t)
                    (seq-remove (lambda (node)
@@ -1164,9 +1163,6 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                                    (or (string= type "comment")
                                        (string= type "dis_expr"))))
                                %)
-                   ((lambda (x)
-                      (message "without comments: %S" x)
-                      x) %)
                    (seq-remove (lambda (node)
                                  (or (string= (treesit-node-text node) "&")
                                      (string= (treesit-node-text node) ":as")))
