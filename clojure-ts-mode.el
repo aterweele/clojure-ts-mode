@@ -1172,8 +1172,15 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                                         child))
                                     %)))
                  %))))
-      ;; TODO: defmethod
-      )))
+      ("defmethod"
+       (pcase-let ((`(,_ ,_ ,_ ,binding . ,_)
+                    (-as-> node %
+                           (treesit-node-children % t)
+                           (seq-remove (lambda (child)
+                                         (or (string= (treesit-node-type child) "comment")
+                                             (string= (treesit-node-type child) "dis_expr")))
+                                       %))))
+         (list binding))))))
 
 (defun clojure-ts-bindings-above-point ()
   (let ((binding-form-nodes nil)
