@@ -1091,8 +1091,6 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
   ;; if `node' is like (for ...), (doseq ...), (defn ...), etc, return every
   ;; node which represents a binding LHS.
   (when (clojure-ts--list-node-p node)
-    ;; TODO my usage of `clojure-ts--named-node-text' is pretty sloppy since it
-    ;; doesn't account for stuff potentially being namespace-qualified.
     (pcase (->> node
                 (treesit-node-children)
                 (seq-some (lambda (node)
