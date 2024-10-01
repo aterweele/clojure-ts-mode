@@ -627,6 +627,15 @@ Includes a dispatch value when applicable (defmethods)."
   "Return non-nil if NODE represents a protocol or interface definition."
   (clojure-ts--definition-node-match-p clojure-ts--interface-type-regexp node))
 
+(defvar clojure-ts--non-semantic-node-regexp
+  (rx string-start (or "comment" "dis_expr") string-end)
+  "Regular expression for matching nodes that are discarded by the
+Clojure reader.")
+
+(defun clojure-ts--non-semantic-node-p (node)
+  (clojure-ts--definition-node-match-p clojure-ts--non-semantic-node-regexp
+                                       node))
+
 
 (defvar clojure-ts--imenu-settings
   `(("Namespace" "list_lit" clojure-ts--ns-node-p)
@@ -1042,13 +1051,11 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
   (pcase (treesit-node-type node)
     ("sym_lit" (list node))
     ("map_lit"
-     (let ((binding-pairs (-as-> node %
-                                 (treesit-node-children % t)
-                                 (seq-remove (lambda (node)
-                                               (pcase (treesit-node-type node)
-                                                 ((or "comment" "dis_expr"))))
-                                             %)
-                                 (seq-partition % 2))))
+     (let ((binding-pairs
+            (-as-> node %
+                   (treesit-node-children % t)
+                   (seq-remove #'clojure-ts--non-semantic-node-p %)
+                   (seq-partition % 2))))
        (seq-mapcat (pcase-lambda (`(,lhs ,rhs))
                      (pcase (treesit-node-type lhs)
                        ("kwd_lit"
@@ -1099,11 +1106,7 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                             node))
                         %)
               (treesit-node-children % t)
-              (seq-remove (lambda (node)
-                            (let ((type (treesit-node-type node)))
-                              (or (string= type "comment")
-                                  (string= type "dis_expr"))))
-                          %)
+              (seq-remove #'clojure-ts--non-semantic-node-p %)
               (seq-partition % 2)
               (seq-map #'car %)))
       ((or "for" "doseq")
@@ -1114,11 +1117,7 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                             node))
                         %)
               (treesit-node-children % t)
-              (seq-remove (lambda (node)
-                            (let ((type (treesit-node-type node)))
-                              (or (string= type "comment")
-                                  (string= type "dis_expr"))))
-                          %)
+              (seq-remove #'clojure-ts--non-semantic-node-p %)
               (seq-partition % 2)
               (seq-mapcat (pcase-lambda (`(,lhs ,rhs))
                             (pcase (treesit-node-text lhs)
@@ -1126,11 +1125,7 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                               (":let"
                                (-as-> rhs %
                                       (treesit-node-children % t)
-                                      (seq-remove (lambda (node)
-                                                    (let ((type (treesit-node-type node)))
-                                                      (or (string= type "comment")
-                                                          (string= type "dis_expr"))))
-                                                  %)
+                                      (seq-remove #'clojure-ts--non-semantic-node-p %)
                                       (seq-partition % 2)
                                       (seq-map #'car %)))
                               (_ (list lhs))))
@@ -1172,10 +1167,7 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
        (pcase-let ((`(,_ ,_ ,_ ,binding . ,_)
                     (-as-> node %
                            (treesit-node-children % t)
-                           (seq-remove (lambda (child)
-                                         (or (string= (treesit-node-type child) "comment")
-                                             (string= (treesit-node-type child) "dis_expr")))
-                                       %))))
+                           (seq-remove #'clojure-ts--non-semantic-node-p %))))
          (list binding)))
       ;; TODO: defmacro, definline, defrecord, reify, proxy, extend-protocol,
       ;; extend-type, letfn, deftype, catch
