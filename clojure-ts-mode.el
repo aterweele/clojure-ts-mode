@@ -1042,21 +1042,14 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
   (pcase (treesit-node-type node)
     ("sym_lit" (list node))
     ("map_lit"
-     (let* ((skip '[(comment) (dis_expr)])
-            (lhs '[(sym_lit) (vec_lit) (map_lit) (kwd_lit)])
-            (rhs '[(kwd_lit) (str_lit) (num_lit) (sym_lit) (vec_lit)
-                   ;; TODO the RHS is anything that could be a map key
-                   ])
-            ;; TODO: this may be a stupid thing to do with a query.
-            (query `((map_lit
-                      :anchor ,skip :*
-                      :anchor (,lhs :anchor ,skip :* :anchor ,rhs) :*
-                      :anchor ,skip :*
-                      :anchor ,lhs @lhs
-                      :anchor ,skip :*
-                      :anchor ,rhs @rhs)))
-            (capture (treesit-query-capture node query)))
-       (seq-mapcat (pcase-lambda (`((_ . ,lhs) (_ . ,rhs)))
+     (let ((binding-pairs (-as-> node %
+                                 (treesit-node-children % t)
+                                 (seq-remove (lambda (node)
+                                               (pcase (treesit-node-type node)
+                                                 ((or "comment" "dis_expr"))))
+                                             %)
+                                 (seq-partition % 2))))
+       (seq-mapcat (pcase-lambda (`(,lhs ,rhs))
                      (pcase (treesit-node-type lhs)
                        ("kwd_lit"
                         (when (treesit-query-capture
@@ -1074,8 +1067,8 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                                     rhs
                                     '((vec_lit (sym_lit) @binding))))))
                        ((or "sym_lit" "vec_lit" "map_lit")
-                        (clojure-ts--bindings-for-destructing-form-node rhs))))
-                   (seq-partition capture 2))))
+                        (clojure-ts--bindings-for-destructing-form-node lhs))))
+                   binding-pairs)))
     ("vec_lit"
      (seq-mapcat
       (lambda (child)
