@@ -1167,7 +1167,26 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                            (treesit-node-children % t)
                            (seq-remove #'clojure-ts--non-semantic-node-p %))))
          (list binding)))
-      ;; TODO: defmacro, definline, defrecord, reify, proxy, extend-protocol,
+      ("reify"
+       (-as-> node %
+              (treesit-node-children % t)
+              (seq-filter (lambda (node) (string= (treesit-node-type node)
+                                                  "list_lit"))
+                          %)
+              ;; XXX also point aware
+              (seq-some (lambda (node)
+                          (when (< (treesit-node-start node)
+                                   (point)
+                                   (treesit-node-end node))
+                            node))
+                        %)
+              (treesit-node-children % t)
+              (seq-some (lambda (node)
+                          (when (string= (treesit-node-type node) "vec_lit")
+                            node))
+                        %)
+              (list %)))
+      ;; TODO: defmacro, definline, defrecord, proxy, extend-protocol,
       ;; extend-type, letfn, deftype, catch
       )))
 
