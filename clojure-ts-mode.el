@@ -1120,10 +1120,10 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                                   (string= type "dis_expr"))))
                           %)
               (seq-partition % 2)
-              (seq-mapcat (pcase-lambda (`(,node ,rhs))
-                            (pcase (clojure-ts--named-node-text node)
-                              ((or "while" "when") nil)
-                              ("let"
+              (seq-mapcat (pcase-lambda (`(,lhs ,rhs))
+                            (pcase (treesit-node-text lhs)
+                              ((or ":while" ":when") nil)
+                              (":let"
                                (-as-> rhs %
                                       (treesit-node-children % t)
                                       (seq-remove (lambda (node)
@@ -1133,7 +1133,7 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                                                   %)
                                       (seq-partition % 2)
                                       (seq-map #'car %)))
-                              (_ (list node))))
+                              (_ (list lhs))))
                           %)))
       ((or "defn" "defn-" "fn")
        ;; TODO: defn (and fn, optionally) also add the name of the current
