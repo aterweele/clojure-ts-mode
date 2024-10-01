@@ -1057,16 +1057,23 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                       :anchor ,rhs @rhs)))
             (capture (treesit-query-capture node query)))
        (seq-mapcat (pcase-lambda (`((_ . ,lhs) (_ . ,rhs)))
-                     (pcase (list (treesit-node-type lhs)
-                                  (treesit-node-text lhs))
-                       ;; TODO handle namespaced destructuring like ":foo/keys".
-                       (`("kwd_lit" ,(or ":keys" ":strs" ":syms"))
-                        (seq-map (pcase-lambda (`(_ . ,binding))
-                                   binding)
-                                 (treesit-query-capture
-                                  rhs
-                                  '((vec_lit (sym_lit) @binding)))))
-                       (`(,(or "sym_lit" "vec_lit" "map_lit") _)
+                     (pcase (treesit-node-type lhs)
+                       ("kwd_lit"
+                        (when (treesit-query-capture
+                               lhs
+                               '(((kwd_lit name: (_) @name)
+                                  (:equal @name "keys"))
+                                 ((kwd_lit name: (_) @name)
+                                  (:equal @name "syms"))
+                                 ((kwd_lit marker: _ @marker name: (_) @name)
+                                  (:equal @marker ":")
+                                  (:equal @name "strs"))))
+                          (seq-map (pcase-lambda (`(_ . ,binding))
+                                     binding)
+                                   (treesit-query-capture
+                                    rhs
+                                    '((vec_lit (sym_lit) @binding))))))
+                       ((or "sym_lit" "vec_lit" "map_lit")
                         (clojure-ts--bindings-for-destructing-form-node rhs))))
                    (seq-partition capture 2))))
     ("vec_lit"
