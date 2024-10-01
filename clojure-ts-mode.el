@@ -520,6 +520,15 @@ with the markdown_inline grammar."
   "Return non-nil if NODE is a Clojure keyword."
   (string-equal "kwd_lit" (treesit-node-type node)))
 
+(defvar clojure-ts--non-semantic-node-regexp
+  (rx string-start (or "comment" "dis_expr") string-end)
+  "Regular expression for matching nodes that are discarded by the
+Clojure reader.")
+
+(defun clojure-ts--non-semantic-node-p (node)
+  (string-match-p clojure-ts--non-semantic-node-regexp
+                  (treesit-node-type node)))
+
 (defun clojure-ts--named-node-text (node)
   "Gets the name of a symbol or keyword NODE.
 This does not include the NODE's namespace."
@@ -627,14 +636,7 @@ Includes a dispatch value when applicable (defmethods)."
   "Return non-nil if NODE represents a protocol or interface definition."
   (clojure-ts--definition-node-match-p clojure-ts--interface-type-regexp node))
 
-(defvar clojure-ts--non-semantic-node-regexp
-  (rx string-start (or "comment" "dis_expr") string-end)
-  "Regular expression for matching nodes that are discarded by the
-Clojure reader.")
 
-(defun clojure-ts--non-semantic-node-p (node)
-  (clojure-ts--definition-node-match-p clojure-ts--non-semantic-node-regexp
-                                       node))
 
 
 (defvar clojure-ts--imenu-settings
@@ -949,103 +951,6 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
   (when (boundp 'treesit-thing-settings) ;; Emacs 30+
     (setq-local treesit-thing-settings clojure-ts--thing-settings)))
 
-;;;###autoload
-(define-derived-mode clojure-ts-mode prog-mode "Clojure[TS]"
-  "Major mode for editing Clojure code.
-
-\\{clojure-ts-mode-map}"
-  :syntax-table clojure-ts-mode-syntax-table
-  (clojure-ts--ensure-grammars)
-  (let ((markdown-available (treesit-ready-p 'markdown_inline t)))
-    (when markdown-available
-      (treesit-parser-create 'markdown_inline)
-      (setq-local treesit-range-settings clojure-ts--treesit-range-settings))
-    (when (treesit-ready-p 'clojure)
-      (treesit-parser-create 'clojure)
-      (clojure-ts-mode-variables markdown-available)
-      (when clojure-ts--debug
-        (setq-local treesit--indent-verbose t)
-        (when (eq clojure-ts--debug 'font-lock)
-          (setq-local treesit--font-lock-verbose t))
-        (treesit-inspect-mode))
-      (treesit-major-mode-setup)
-      ;; Workaround for treesit-transpose-sexps not correctly working with
-      ;; treesit-thing-settings on Emacs 30.
-      ;; Once treesit-transpose-sexps it working again this can be removed
-      (when (fboundp 'transpose-sexps-default-function)
-        (setq-local transpose-sexps-function #'transpose-sexps-default-function)))))
-
-;;;###autoload
-(define-derived-mode clojure-ts-clojurescript-mode clojure-ts-mode "ClojureScript[TS]"
-  "Major mode for editing ClojureScript code.
-
-\\{clojure-ts-clojurescript-mode-map}")
-
-;;;###autoload
-(define-derived-mode clojure-ts-clojurec-mode clojure-ts-mode "ClojureC[TS]"
-  "Major mode for editing ClojureC code.
-
-\\{clojure-ts-clojurec-mode-map}")
-
-;;;###autoload
-(define-derived-mode clojure-ts-clojuredart-mode clojure-ts-mode "ClojureDart[TS]"
-  "Major mode for editing Clojure Dart code.
-
-\\{clojure-ts-clojuredart-mode-map}")
-
-;;;###autoload
-(define-derived-mode clojure-ts-jank-mode clojure-ts-mode "Jank[TS]"
-  "Major mode for editing Jank code.
-
-\\{clojure-ts-jank-mode-map}")
-
-(defun clojure-ts--register-novel-modes ()
-  "Set up Clojure modes not present in progenitor clojure-mode.el."
-  (add-to-list 'auto-mode-alist '("\\.cljd\\'" . clojure-ts-clojuredart-mode))
-  (add-to-list 'auto-mode-alist '("\\.jank\\'" . clojure-ts-jank-mode)))
-
-(if (treesit-available-p)
-    ;; Redirect clojure-mode to clojure-ts-mode if clojure-mode is present
-    (if (require 'clojure-mode nil 'noerror)
-        (progn
-          (add-to-list 'major-mode-remap-alist '(clojure-mode . clojure-ts-mode))
-          (add-to-list 'major-mode-remap-alist '(clojurescript-mode . clojure-ts-clojurescript-mode))
-          (add-to-list 'major-mode-remap-alist '(clojurec-mode . clojure-ts-clojurec-mode))
-          (clojure-ts--register-novel-modes))
-      ;; When Clojure-mode is not present, setup auto-modes ourselves
-      (progn
-        ;; Regular clojure/edn files
-        ;; I believe dtm is for datomic queries and datoms, which are just edn.
-        (add-to-list 'auto-mode-alist
-                     '("\\.\\(clj\\|dtm\\|edn\\)\\'" . clojure-ts-mode))
-        (add-to-list 'auto-mode-alist '("\\.cljs\\'" . clojure-ts-clojurescript-mode))
-        (add-to-list 'auto-mode-alist '("\\.cljc\\'" . clojure-ts-clojurec-mode))
-        ;; boot build scripts are Clojure source files
-        (add-to-list 'auto-mode-alist '("\\(?:build\\|profile\\)\\.boot\\'" . clojure-ts-mode))
-        ;; babashka scripts are Clojure source files
-        (add-to-list 'interpreter-mode-alist '("bb" . clojure-ts-mode))
-        ;; nbb scripts are ClojureScript source files
-        (add-to-list 'interpreter-mode-alist '("nbb" . clojure-ts-clojurescript-mode))
-        (clojure-ts--register-novel-modes)))
-  (message "Clojure TS Mode will not be activated as tree-sitter support is missing."))
-
-(defvar clojure-ts--find-ns-query
-  (treesit-query-compile
-   'clojure
-   '(((source (list_lit
-               :anchor (sym_lit name: (sym_name) @ns)
-               :anchor (sym_lit name: (sym_name) @ns-name)))
-      (:equal @ns "ns"))
-     ((source (list_lit
-               :anchor (sym_lit name: (sym_name) @in-ns)
-               :anchor (quoting_lit
-                        :anchor (sym_lit name: (sym_name) @ns-name))))
-      (:equal @in-ns "in-ns")))))
-
-(defun clojure-ts-find-ns ()
-  "Return the name of the current namespace."
-  (let ((nodes (treesit-query-capture 'clojure clojure-ts--find-ns-query)))
-    (treesit-node-text (cdr (assoc 'ns-name nodes)) t)))
 
 (defun clojure-ts--bindings-for-destructing-form-node (node)
   (pcase (treesit-node-type node)
@@ -1206,6 +1111,107 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
 (defun clojure-ts-completion-at-point ()
   (pcase-let ((`(,start . ,end) (bounds-of-thing-at-point 'symbol)))
     (list start end (clojure-ts-bindings-above-point) nil)))
+
+
+;;;###autoload
+(define-derived-mode clojure-ts-mode prog-mode "Clojure[TS]"
+  "Major mode for editing Clojure code.
+
+\\{clojure-ts-mode-map}"
+  :syntax-table clojure-ts-mode-syntax-table
+  (clojure-ts--ensure-grammars)
+  (let ((markdown-available (treesit-ready-p 'markdown_inline t)))
+    (when markdown-available
+      (treesit-parser-create 'markdown_inline)
+      (setq-local treesit-range-settings clojure-ts--treesit-range-settings))
+    (when (treesit-ready-p 'clojure)
+      (treesit-parser-create 'clojure)
+      (clojure-ts-mode-variables markdown-available)
+      (when clojure-ts--debug
+        (setq-local treesit--indent-verbose t)
+        (when (eq clojure-ts--debug 'font-lock)
+          (setq-local treesit--font-lock-verbose t))
+        (treesit-inspect-mode))
+      (treesit-major-mode-setup)
+      (add-hook 'completion-at-point-functions #'clojure-ts-completion-at-point
+                nil 'local)
+      ;; Workaround for treesit-transpose-sexps not correctly working with
+      ;; treesit-thing-settings on Emacs 30.
+      ;; Once treesit-transpose-sexps it working again this can be removed
+      (when (fboundp 'transpose-sexps-default-function)
+        (setq-local transpose-sexps-function #'transpose-sexps-default-function)))))
+
+;;;###autoload
+(define-derived-mode clojure-ts-clojurescript-mode clojure-ts-mode "ClojureScript[TS]"
+  "Major mode for editing ClojureScript code.
+
+\\{clojure-ts-clojurescript-mode-map}")
+
+;;;###autoload
+(define-derived-mode clojure-ts-clojurec-mode clojure-ts-mode "ClojureC[TS]"
+  "Major mode for editing ClojureC code.
+
+\\{clojure-ts-clojurec-mode-map}")
+
+;;;###autoload
+(define-derived-mode clojure-ts-clojuredart-mode clojure-ts-mode "ClojureDart[TS]"
+  "Major mode for editing Clojure Dart code.
+
+\\{clojure-ts-clojuredart-mode-map}")
+
+;;;###autoload
+(define-derived-mode clojure-ts-jank-mode clojure-ts-mode "Jank[TS]"
+  "Major mode for editing Jank code.
+
+\\{clojure-ts-jank-mode-map}")
+
+(defun clojure-ts--register-novel-modes ()
+  "Set up Clojure modes not present in progenitor clojure-mode.el."
+  (add-to-list 'auto-mode-alist '("\\.cljd\\'" . clojure-ts-clojuredart-mode))
+  (add-to-list 'auto-mode-alist '("\\.jank\\'" . clojure-ts-jank-mode)))
+
+(if (treesit-available-p)
+    ;; Redirect clojure-mode to clojure-ts-mode if clojure-mode is present
+    (if (require 'clojure-mode nil 'noerror)
+        (progn
+          (add-to-list 'major-mode-remap-alist '(clojure-mode . clojure-ts-mode))
+          (add-to-list 'major-mode-remap-alist '(clojurescript-mode . clojure-ts-clojurescript-mode))
+          (add-to-list 'major-mode-remap-alist '(clojurec-mode . clojure-ts-clojurec-mode))
+          (clojure-ts--register-novel-modes))
+      ;; When Clojure-mode is not present, setup auto-modes ourselves
+      (progn
+        ;; Regular clojure/edn files
+        ;; I believe dtm is for datomic queries and datoms, which are just edn.
+        (add-to-list 'auto-mode-alist
+                     '("\\.\\(clj\\|dtm\\|edn\\)\\'" . clojure-ts-mode))
+        (add-to-list 'auto-mode-alist '("\\.cljs\\'" . clojure-ts-clojurescript-mode))
+        (add-to-list 'auto-mode-alist '("\\.cljc\\'" . clojure-ts-clojurec-mode))
+        ;; boot build scripts are Clojure source files
+        (add-to-list 'auto-mode-alist '("\\(?:build\\|profile\\)\\.boot\\'" . clojure-ts-mode))
+        ;; babashka scripts are Clojure source files
+        (add-to-list 'interpreter-mode-alist '("bb" . clojure-ts-mode))
+        ;; nbb scripts are ClojureScript source files
+        (add-to-list 'interpreter-mode-alist '("nbb" . clojure-ts-clojurescript-mode))
+        (clojure-ts--register-novel-modes)))
+  (message "Clojure TS Mode will not be activated as tree-sitter support is missing."))
+
+(defvar clojure-ts--find-ns-query
+  (treesit-query-compile
+   'clojure
+   '(((source (list_lit
+               :anchor (sym_lit name: (sym_name) @ns)
+               :anchor (sym_lit name: (sym_name) @ns-name)))
+      (:equal @ns "ns"))
+     ((source (list_lit
+               :anchor (sym_lit name: (sym_name) @in-ns)
+               :anchor (quoting_lit
+                        :anchor (sym_lit name: (sym_name) @ns-name))))
+      (:equal @in-ns "in-ns")))))
+
+(defun clojure-ts-find-ns ()
+  "Return the name of the current namespace."
+  (let ((nodes (treesit-query-capture 'clojure clojure-ts--find-ns-query)))
+    (treesit-node-text (cdr (assoc 'ns-name nodes)) t)))
 
 (provide 'clojure-ts-mode)
 
