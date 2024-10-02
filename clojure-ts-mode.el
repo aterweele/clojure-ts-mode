@@ -1091,8 +1091,38 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                             node))
                         %)
               (list %)))
-      ;; TODO: defmacro, definline, defrecord, proxy, extend-protocol,
-      ;; extend-type, letfn, deftype, catch
+      ((or "defrecord" "deftype")
+       (let ((fields-vector
+              (-as-> node %
+                     (treesit-node-children % t)
+                     (seq-some (lambda (node)
+                                 (when (string= (treesit-node-type node) "vec_lit")
+                                   node))
+                               %)))
+             (current-method-body-binding-vector
+              (-as-> node %
+                     (treesit-node-children % t)
+                     ;; XXX point aware
+                     (seq-filter (lambda (node)
+                                   (and (clojure-ts--list-node-p node)
+                                        (< (treesit-node-start node)
+                                           (point)
+                                           (treesit-node-end node))))
+                                 %)
+                     (seq-some
+                      (lambda (node)
+                        (-as-> node %
+                               (treesit-node-children % t)
+                               (seq-some (lambda (node)
+                                           (when (and (string= (treesit-node-type node) "vec_lit")
+                                                      (< (treesit-node-end node)))
+                                             node))
+                                         %)))
+                      %))))
+         (when current-method-body-binding-vector
+           (list current-method-body-binding-vector fields-vector))))
+      ;; TODO: defmacro, definline, proxy, extend-protocol, extend-type, letfn,
+      ;; catch
       )))
 
 (defun clojure-ts-bindings-above-point ()
@@ -1100,6 +1130,8 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
         (current-node (treesit-node-at (point))))
     (while (not (equal current-node (treesit-buffer-root-node)))
       (->> current-node
+           ;; TODO: I think that `clojure-ts--binding-lhss-for-node' should be
+           ;; in charge of point-awareness
            (clojure-ts--binding-lhss-for-node)
            (seq-mapcat #'clojure-ts--bindings-for-destructing-form-node)
            (seq-filter (lambda (node)
