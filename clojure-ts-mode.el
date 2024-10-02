@@ -1121,8 +1121,13 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                       %))))
          (when current-method-body-binding-vector
            (list current-method-body-binding-vector fields-vector))))
-      ;; TODO: defmacro, definline, proxy, extend-protocol, extend-type, letfn,
-      ;; catch
+      ("catch"
+       (-as-> node %
+              (treesit-node-children % t)
+              (seq-remove #'clojure-ts--non-semantic-node-p %)
+              (caddr %)
+              (list %)))
+      ;; TODO: defmacro, definline, proxy, extend-protocol, extend-type, letfn
       )))
 
 (defun clojure-ts-bindings-above-point ()
