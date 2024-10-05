@@ -1091,6 +1091,47 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                             node))
                         %)
               (list %)))
+      ("proxy"
+       ;; XXX again, a lot of point awareness in here. TODO inject "this" as a
+       ;; possible candidate. Tricky because this fn currently returns treesit
+       ;; nodes, but we seemingly can't create one of those ad-hoc.
+       (let ((function-body-children
+              (-as-> node %
+                     (treesit-node-children % t)
+                     (seq-filter (lambda (node) (string= (treesit-node-type node)
+                                                         "list_lit"))
+                                 %)
+                     (seq-some (lambda (node)
+                                 (when (< (treesit-node-start node)
+                                          (point)
+                                          (treesit-node-end node))
+                                   node))
+                               %)
+                     (treesit-node-children % t))))
+         (if-let ((binding-vector
+                   (seq-some (lambda (child)
+                               (when (string= (treesit-node-type child) "vec_lit")
+                                 child))
+                             function-body-children)))
+             ;; single-arity case
+             (list binding-vector)
+           ;; multi-arity case: find the arity that contains `(point)', then get
+           ;; its binding vector.
+           (-as-> function-body-children %
+                  (seq-filter #'clojure-ts--list-node-p %)
+                  (seq-some (lambda (arity-body)
+                              (when (< (treesit-node-start arity-body)
+                                       (point)
+                                       (treesit-node-end arity-body))
+                                arity-body))
+                            %)
+                  (treesit-node-children % t)
+                  (seq-some (lambda (child)
+                              (when (string= (treesit-node-type child)
+                                             "vec_lit")
+                                child))
+                            %)
+                  (list %)))))
       ((or "defrecord" "deftype")
        (let ((fields-vector
               (-as-> node %
@@ -1127,7 +1168,7 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
               (seq-remove #'clojure-ts--non-semantic-node-p %)
               (caddr %)
               (list %)))
-      ;; TODO: defmacro, definline, proxy, extend-protocol, extend-type, letfn
+      ;; TODO: defmacro, definline, extend-protocol, extend-type, letfn
       )))
 
 (defun clojure-ts-bindings-above-point ()
