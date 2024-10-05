@@ -1072,7 +1072,7 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                            (treesit-node-children % t)
                            (seq-remove #'clojure-ts--non-semantic-node-p %))))
          (list binding)))
-      ("reify"
+      ((or "reify" "extend-protocol" "extend-type")
        (-as-> node %
               (treesit-node-children % t)
               (seq-filter (lambda (node) (string= (treesit-node-type node)
@@ -1168,7 +1168,7 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
               (seq-remove #'clojure-ts--non-semantic-node-p %)
               (caddr %)
               (list %)))
-      ;; TODO: defmacro, definline, extend-protocol, extend-type, letfn
+      ;; TODO: defmacro, definline, letfn
       )))
 
 (defun clojure-ts-bindings-above-point ()
