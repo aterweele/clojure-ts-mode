@@ -961,26 +961,30 @@ See `clojure-ts--font-lock-settings' for usage of MARKDOWN-AVAILABLE."
                    (treesit-node-children % t)
                    (seq-remove #'clojure-ts--non-semantic-node-p %)
                    (seq-partition % 2))))
-       (seq-mapcat (pcase-lambda (`(,lhs ,rhs))
-                     (pcase (treesit-node-type lhs)
-                       ("kwd_lit"
-                        (when (treesit-query-capture
-                               lhs
-                               '(((kwd_lit name: (_) @name)
-                                  (:equal @name "keys"))
-                                 ((kwd_lit name: (_) @name)
-                                  (:equal @name "syms"))
-                                 ((kwd_lit marker: _ @marker name: (_) @name)
-                                  (:equal @marker ":")
-                                  (:equal @name "strs"))))
-                          (seq-map (pcase-lambda (`(_ . ,binding))
-                                     binding)
-                                   (treesit-query-capture
-                                    rhs
-                                    '((vec_lit (sym_lit) @binding))))))
-                       ((or "sym_lit" "vec_lit" "map_lit")
-                        (clojure-ts--bindings-for-destructing-form-node lhs))))
-                   binding-pairs)))
+       (seq-mapcat
+        (pcase-lambda (`(,lhs ,rhs))
+          (pcase (treesit-node-type lhs)
+            ("kwd_lit"
+             (pcase (treesit-node-text
+                     (treesit-node-child-by-field-name lhs "name"))
+               ((or "keys" "syms"
+                    (and "strs"
+                         (guard (string= (treesit-node-text
+                                          (treesit-node-child-by-field-name
+                                           lhs "marker"))
+                                         ":"))))
+                (seq-filter #'clojure-ts--symbol-node-p
+                            (treesit-node-children rhs)))
+               ((and "as"
+                     (guard (string= (treesit-node-text
+                                      (treesit-node-child-by-field-name
+                                       lhs "marker"))
+                                     ":"))
+                     (guard (clojure-ts--symbol-node-p rhs)))
+                (list rhs))))
+            ((or "sym_lit" "vec_lit" "map_lit")
+             (clojure-ts--bindings-for-destructing-form-node lhs))))
+        binding-pairs)))
     ("vec_lit"
      (seq-mapcat
       (lambda (child)
